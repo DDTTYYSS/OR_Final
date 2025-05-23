@@ -800,12 +800,14 @@ class InterviewSchedulerOptimized:
         
         if len(self.schedule) > 8:
             print(f"  ... and {len(self.schedule) - 8} more interviews")
-        
-        # Average days per applicant
+          # Average days per applicant
         if applicants_with_interviews:
             total_days = sum(len(days) for days in applicant_days.values())
             avg_days = total_days / len(applicants_with_interviews)
             print(f"\nAverage days per applicant: {avg_days:.2f}")
+        
+        # Multi-day analysis
+        self.analyze_multi_day_applicants()
     
     def export_schedule(self, filename='optimized_schedule.csv'):
         """Export schedule to CSV."""
@@ -833,6 +835,42 @@ class InterviewSchedulerOptimized:
         df_schedule = df_schedule.sort_values(['Date_K', 'Start_Time', 'Department'])
         df_schedule.to_csv(filename, index=False)
         print(f"\nSchedule exported to {filename}")
+
+    def analyze_multi_day_applicants(self):
+        """Analyze and report applicants with interviews on multiple days."""
+        # Day distribution by applicant
+        applicant_days = defaultdict(set)
+        for a, _, k, _, _ in self.schedule:
+            applicant_days[a].add(k)
+        
+        # Count applicants with multiple days
+        multi_day_applicants = []
+        for applicant, days in applicant_days.items():
+            if len(days) > 1:
+                multi_day_applicants.append((applicant, days))
+        
+        print(f"\nMulti-day Interview Analysis:")
+        print(f"Applicants with interviews on multiple days: {len(multi_day_applicants)}")
+        
+        if multi_day_applicants:
+            print("\nDetailed multi-day interview breakdown:")
+            for applicant, days in sorted(multi_day_applicants, key=lambda x: len(x[1]), reverse=True):
+                name = self.applicant_names.get(applicant, f"ID_{applicant}")
+                days_list = sorted(list(days))
+                print(f"  {name} ({applicant}): {len(days)} days - Days {days_list}")
+                
+                # Show which departments on which days
+                dept_by_day = defaultdict(list)
+                for a, dept, k, start_time, end_time in self.schedule:
+                    if a == applicant:
+                        start_str = self.minutes_to_time_str(start_time)
+                        end_str = self.minutes_to_time_str(end_time)
+                        dept_by_day[k].append(f"{dept} ({start_str}-{end_str})")
+                
+                for day in sorted(dept_by_day.keys()):
+                    print(f"    Day {day}: {', '.join(dept_by_day[day])}")
+        
+        return len(multi_day_applicants)
 
 def main():
     """Main function."""
