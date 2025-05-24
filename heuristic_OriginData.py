@@ -17,11 +17,13 @@ import numpy as np
 from collections import defaultdict
 import time
 from datetime import datetime, timedelta
+import os
 
 class InterviewSchedulerOptimized:
-    def __init__(self, csv_file='availability_records.csv'):
+    def __init__(self, csv_file='availability_records.csv', dept_duration_file=None):
         """Initialize the optimized scheduler."""
         self.csv_file = csv_file
+        self.dept_duration_file = dept_duration_file
         self.load_data()
         self.setup_parameters()
         self.reset_solution()
@@ -100,12 +102,26 @@ class InterviewSchedulerOptimized:
     def setup_parameters(self):
         """Set up interview durations and other parameters."""
         # Interview durations in minutes
-        self.interview_duration = {
-            'AC': 15,    # 15 minutes
-            'GPDA': 20,  # 20 minutes
-            'PR': 15,    # 15 minutes  
-            'DM': 25     # 25 minutes
-        }
+        self.interview_duration = {}
+        if self.dept_duration_file and os.path.exists(self.dept_duration_file):
+            df = pd.read_csv(self.dept_duration_file)
+            for _, row in df.iterrows():
+                self.interview_duration[row['dept']] = int(row['duration'])
+            print("Interview durations loaded from", self.dept_duration_file, ":", self.interview_duration)
+        else:
+            # 若無檔案則給預設值
+            self.interview_duration = {
+                'AC': 15,
+                'GPDA': 20,
+                'PR': 15,
+                'DM': 25
+            }
+            print("Interview durations (default):", self.interview_duration)
+
+        # 若有新部門但沒在interview_duration裡，給預設15分鐘
+        for dept in self.departments:
+            if dept not in self.interview_duration:
+                self.interview_duration[dept] = 15
         
         print("Interview durations (minutes):", self.interview_duration)
     
@@ -143,10 +159,12 @@ class InterviewSchedulerOptimized:
             return False
         
         # Check department conflicts
-        dept_schedule = self.dept_occupied_times[(dept, date_k)]
-        for occupied_start, occupied_end in dept_schedule:
-            if self.times_overlap(start_time, end_time, occupied_start, occupied_end):
-                return False
+        for dept in self.departments:
+            for date_k in self.dates:
+                dept_schedule = self.dept_occupied_times[(dept, date_k)]
+                for occupied_start, occupied_end in dept_schedule:
+                    if self.times_overlap(start_time, end_time, occupied_start, occupied_end):
+                        return False
         
         # Check applicant conflicts on same date
         applicant_schedule = self.applicant_occupied_times[(applicant, date_k)]
@@ -363,10 +381,13 @@ class InterviewSchedulerOptimized:
         print(f"Local optimization completed: {improvements} improvements made")
                 
         # Check department conflicts
-        dept_schedule = self.dept_occupied_times[(dept, date_k)]
-        for occupied_start, occupied_end in dept_schedule:
-            if self.times_overlap(start_time, end_time, occupied_start, occupied_end):
-                return False
+        for dept in self.departments:
+            for date_k in self.dates:
+                dept_schedule = self.dept_occupied_times[(dept, date_k)]
+                for (start_time, end_time) in dept_schedule:  # interview_times 是你要檢查的時段清單
+                    for (occupied_start, occupied_end) in dept_schedule:
+                        if self.times_overlap(start_time, end_time, occupied_start, occupied_end):
+                            return False
         
         # Check applicant conflicts on same date
         applicant_schedule = self.applicant_occupied_times[(applicant, date_k)]
@@ -1191,7 +1212,7 @@ def main():
     print("=" * 50)
     
     try:
-        scheduler = InterviewSchedulerOptimized('availability_records.csv')
+        scheduler = InterviewSchedulerOptimized('availability_records.csv', 'departmentDuration.csv')
         
         if scheduler.solve_heuristic():
             scheduler.analyze_results()
