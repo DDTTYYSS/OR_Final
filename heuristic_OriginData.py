@@ -975,10 +975,16 @@ class InterviewSchedulerOptimized:
         """Analyze and display results."""
         print("\n" + "="*50)
         print("SOLUTION ANALYSIS")
-        print("="*50)
-        
+        print("="*50)        
         total_interviews = len(self.schedule)
         print(f"Total scheduled interviews: {total_interviews}")
+        
+        # Calculate maximum possible interviews (unique applicant-department combinations)
+        unique_applicant_dept_combinations = set()
+        for (applicant, dept, date_k) in self.available_times.keys():
+            unique_applicant_dept_combinations.add((applicant, dept))
+        max_possible_interviews = len(unique_applicant_dept_combinations)
+        print(f"Maximum possible interviews: {max_possible_interviews}")
         
         if total_interviews == 0:
             print("No interviews were scheduled!")
