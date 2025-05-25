@@ -26,23 +26,35 @@ for _, row in df.iterrows():
             avail_str = row[col]
             if pd.isna(avail_str):
                 continue
+                
             dept_key = col_map[col]
             dept_code = dept_map[dept_key]
-            segments = [seg.strip() for seg in re.split('[,;]', str(avail_str)) if seg.strip()]
-            for i in range(0, len(segments), 2):
-                date_seg = segments[i]
-                time_seg = segments[i+1] if i+1 < len(segments) else ''
-                date_match = re.search(r'(\d{1,2}/\d{1,2})', date_seg)
-                time_match = re.search(r'(\d{1,2}:\d{2}-\d{1,2}:\d{2})', time_seg)
-                if date_match and time_match:
-                    date_iso = pd.to_datetime('2024/' + date_match.group(1)).date().isoformat()
-                    time_range = time_match.group(1)
+            
+            if dept_code == 'DM':
+                # Parse DM format: "9/19（四 Thu） 19:00-21:00, 9/20（五 Fri） 19:00-21:00"
+                pattern = r'(\d{1,2}/\d{1,2})（[^）]+）\s*(\d{1,2}:\d{2}-\d{1,2}:\d{2})'
+                matches = re.findall(pattern, str(avail_str))
+                for date, time in matches:
+                    date_iso = pd.to_datetime('2024/' + date).date().isoformat()
                     records.append({
                         'ID': applicant_id,
                         'Name': applicant_name,
                         'dept': dept_code,
                         'date': date_iso,
-                        'time_slot': time_range
+                        'time_slot': time
+                    })
+            else:
+                # Parse AC/GPDA/PR format: "六  Saturday 9/21, 13:00-17:00"
+                pattern = r'[^,]+?(\d{1,2}/\d{1,2}),\s*(\d{1,2}:\d{2}-\d{1,2}:\d{2})'
+                matches = re.findall(pattern, str(avail_str))
+                for date, time in matches:
+                    date_iso = pd.to_datetime('2024/' + date).date().isoformat()
+                    records.append({
+                        'ID': applicant_id,
+                        'Name': applicant_name,
+                        'dept': dept_code,
+                        'date': date_iso,
+                        'time_slot': time
                     })
 
 # Build the cleaned availability DataFrame
@@ -53,3 +65,7 @@ output_path = 'availability_records.csv'
 avail_df.to_csv(output_path, index=False)
 
 print(f"Saved cleaned CSV to {output_path}")
+
+# Print some sample records to verify
+print("\nSample records:")
+print(avail_df.head())
