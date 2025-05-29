@@ -96,6 +96,18 @@ class ComparisonSolver:
         
         return pd.DataFrame(records)
     
+    def run_naive(self, csv_path, dept_duration_path):
+        """Run the naive algorithm on a scenario"""
+        start_time = time.time()
+        scheduler = NaiveInterviewScheduler(csv_path)
+        # Set the interview durations from the department duration file
+        durations_df = pd.read_csv(dept_duration_path)
+        scheduler.interview_duration = dict(zip(durations_df['dept'], durations_df['duration']))
+        scheduler.reset_solution()
+        total_assigned = scheduler.naive_schedule()
+        end_time = time.time()
+        return total_assigned, end_time - start_time
+    
     def run_heuristic(self, csv_path, dept_duration_path):
         """Run the heuristic algorithm on a scenario"""
         start_time = time.time()
@@ -148,9 +160,9 @@ class ComparisonSolver:
         model.setParam("OutputFlag", 0)  # Suppress output
         
         # Add variables
-        x = model.addVars(num_ids, num_depts, num_k, num_s, vtype=GRB.BINARY, name="x")
-        y = model.addVars(num_ids, num_depts, num_k, vtype=GRB.BINARY, name="y")
-        z = model.addVars(num_ids, num_depts, num_depts, num_k, vtype=GRB.BINARY, name="z")
+        x = model.addVars(num_ids, num_depts, num_k, num_s, vtype=GRB.CONTINUOUS, name="x")
+        y = model.addVars(num_ids, num_depts, num_k, vtype=GRB.CONTINUOUS, name="y")
+        z = model.addVars(num_ids, num_depts, num_depts, num_k, vtype=GRB.CONTINUOUS, name="z")
         
         # Set objective
         model.setObjective(quicksum(x[i,j,k,s] for i in range(num_ids)
@@ -252,18 +264,6 @@ class ComparisonSolver:
         else:
             return None, end_time - start_time
 
-    def run_naive(self, csv_path, dept_duration_path):
-        """Run the naive algorithm on a scenario"""
-        start_time = time.time()
-        scheduler = NaiveInterviewScheduler(csv_path)
-        # Set the interview durations from the department duration file
-        durations_df = pd.read_csv(dept_duration_path)
-        scheduler.interview_duration = dict(zip(durations_df['dept'], durations_df['duration']))
-        scheduler.reset_solution()
-        total_assigned = scheduler.naive_schedule()
-        end_time = time.time()
-        return scheduler, end_time - start_time
-
     def run_comparison(self):
         """Run comparison between heuristic and Gurobi approaches"""
         with open(self.results_file, 'w', encoding='utf-8') as f:
@@ -297,16 +297,15 @@ class ComparisonSolver:
                     df_4d = self.process_availability_to_4d(csv_path, dept_duration_path)
                     
                     # Calculate total possible independent interviews
-                    # First, get the number of available slots per applicant-department pair
-                    avail_counts = df_4d[df_4d['available'] == 1].groupby(['ID', 'dept']).size()
-                    # Each applicant can have at most half the number of departments as interviews
-                    max_interviews_per_applicant = len(df_4d['dept'].unique()) // 2
-                    total_possible = min(avail_counts.sum(), max_interviews_per_applicant * len(df_4d['ID'].unique()))
+                    # Calculate maximum possible interviews (unique applicant-department combinations)
+                    unique_applicant_dept_combinations = set()
+                    for _, row in df_4d[df_4d['available'] == 1].iterrows():
+                        unique_applicant_dept_combinations.add((row['ID'], row['dept']))
+                    total_possible = len(unique_applicant_dept_combinations)
                     
                     # Run naive
                     print("\nRunning naive algorithm...")
-                    naive_scheduler, naive_time = self.run_naive(csv_path, dept_duration_path)
-                    naive_results = len(naive_scheduler.schedule)
+                    naive_results, naive_time = self.run_naive(csv_path, dept_duration_path)
                     
                     # Run heuristic
                     print("\nRunning heuristic algorithm...")
@@ -349,8 +348,8 @@ class ComparisonSolver:
                 print("\n" + "=" * 80)
                 print("SUMMARY STATISTICS")
                 print("=" * 80)
-                print(f"{'Scenario':<10} {'Total':<10} {'Naive':<12} {'Heuristic':<12} {'Gurobi':<12} {'N-Time':<10} {'H-Time':<10} {'G-Time':<10} {'N-Rate':<10} {'H-Rate':<10} {'G-Rate':<10}")
-                print("-" * 120)
+                print(f"{'Scenario':<10} {'Total':<10} {'Naive':<12} {'Heuristic':<12} {'Gurobi':<12} {'N-Time':<10} {'H-Time':<10} {'G-Time':<10} {'N-Rate':<10} {'H-Rate':<10} {'G-Rate':<10} {'N-Gap':<10} {'H-Gap':<10} {'N-Time%':<10} {'H-Time%':<10}")
+                print("-" * 160)
                 
                 total_possible_all = 0
                 total_naive = 0
@@ -361,10 +360,20 @@ class ComparisonSolver:
                 total_gurobi_time = 0
                 
                 for stats in self.summary_stats:
+                    # Calculate optimality gaps
+                    naive_gap = ((stats['gurobi_scheduled'] - stats['naive_scheduled']) / stats['gurobi_scheduled'] * 100) if stats['gurobi_scheduled'] > 0 else 0
+                    heuristic_gap = ((stats['gurobi_scheduled'] - stats['heuristic_scheduled']) / stats['gurobi_scheduled'] * 100) if stats['gurobi_scheduled'] > 0 else 0
+                    
+                    # Calculate time percentages relative to Gurobi
+                    naive_time_pct = (stats['naive_time'] / stats['gurobi_time'] * 100) if stats['gurobi_time'] > 0 else 0
+                    heuristic_time_pct = (stats['heuristic_time'] / stats['gurobi_time'] * 100) if stats['gurobi_time'] > 0 else 0
+                    
                     print(f"{stats['scenario']:<10} {stats['total_possible']:<10} "
                           f"{stats['naive_scheduled']:<12} {stats['heuristic_scheduled']:<12} {stats['gurobi_scheduled']:<12} "
                           f"{stats['naive_time']:<10.2f} {stats['heuristic_time']:<10.2f} {stats['gurobi_time']:<10.2f} "
-                          f"{stats['naive_success_rate']:<10.1f} {stats['heuristic_success_rate']:<10.1f} {stats['gurobi_success_rate']:<10.1f}")
+                          f"{stats['naive_success_rate']:<10.1f} {stats['heuristic_success_rate']:<10.1f} {stats['gurobi_success_rate']:<10.1f} "
+                          f"{naive_gap:<10.1f} {heuristic_gap:<10.1f} "
+                          f"{naive_time_pct:<10.1f} {heuristic_time_pct:<10.1f}")
                     total_possible_all += stats['total_possible']
                     total_naive += stats['naive_scheduled']
                     total_heuristic += stats['heuristic_scheduled']
@@ -373,10 +382,20 @@ class ComparisonSolver:
                     total_heuristic_time += stats['heuristic_time']
                     total_gurobi_time += stats['gurobi_time']
                 
-                print("-" * 120)
+                # Calculate total optimality gaps
+                total_naive_gap = ((total_gurobi - total_naive) / total_gurobi * 100) if total_gurobi > 0 else 0
+                total_heuristic_gap = ((total_gurobi - total_heuristic) / total_gurobi * 100) if total_gurobi > 0 else 0
+                
+                # Calculate total time percentages
+                total_naive_time_pct = (total_naive_time / total_gurobi_time * 100) if total_gurobi_time > 0 else 0
+                total_heuristic_time_pct = (total_heuristic_time / total_gurobi_time * 100) if total_gurobi_time > 0 else 0
+                
+                print("-" * 160)
                 print(f"{'TOTAL':<10} {total_possible_all:<10} {total_naive:<12} {total_heuristic:<12} {total_gurobi:<12} "
                       f"{total_naive_time:<10.2f} {total_heuristic_time:<10.2f} {total_gurobi_time:<10.2f} "
-                      f"{(total_naive/total_possible_all*100):<10.1f} {(total_heuristic/total_possible_all*100):<10.1f} {(total_gurobi/total_possible_all*100):<10.1f}")
+                      f"{(total_naive/total_possible_all*100):<10.1f} {(total_heuristic/total_possible_all*100):<10.1f} {(total_gurobi/total_possible_all*100):<10.1f} "
+                      f"{total_naive_gap:<10.1f} {total_heuristic_gap:<10.1f} "
+                      f"{total_naive_time_pct:<10.1f} {total_heuristic_time_pct:<10.1f}")
                 
             finally:
                 sys.stdout = original_stdout
