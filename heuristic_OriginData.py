@@ -511,13 +511,9 @@ class InterviewSchedulerOptimized:
         print(f"\nAfter greedy assignment: {scheduled_applicants}/{len(self.applicants)} applicants scheduled")
         
         # Phase 2: Consolidation optimization (try to reduce multi-day applicants)
-        final_scheduled = len(set(a for a, _, _, _, _ in self.schedule))
-        if final_scheduled >= len(self.applicants) * 0.9:  # If 90%+ coverage
-            print("Good coverage achieved, starting consolidation optimization...")
-            consolidation_improvements = self.consolidation_optimization()
-            print(f"Consolidation completed: {consolidation_improvements} applicants consolidated")
-        else:
-            print("Coverage still insufficient, skipping optimization phases")
+        print("Good coverage achieved, starting consolidation optimization...")
+        consolidation_improvements = self.consolidation_optimization()
+        print(f"Consolidation completed: {consolidation_improvements} applicants consolidated")
         
         solve_time = time.time() - start_time
         print(f"\nHeuristic completed in {solve_time:.2f} seconds")
