@@ -50,9 +50,9 @@ dur_slots = {j: int(np.ceil(T[j] / 15)) for j in T}  # Use 15-minute base slot
 model = Model("InterviewScheduling")
 model.setParam("OutputFlag", 1)
 
-x = model.addVars(num_ids, num_depts, num_k, num_s, vtype=GRB.BINARY, name="x")
-y = model.addVars(num_ids, num_depts, num_k, vtype=GRB.BINARY, name="y")
-z = model.addVars(num_ids, num_depts, num_depts, num_k, vtype=GRB.BINARY, name="z")
+x = model.addVars(num_ids, num_depts, num_k, num_s, vtype=GRB.CONTINUOUS, name="x")
+y = model.addVars(num_ids, num_depts, num_k, vtype=GRB.CONTINUOUS, name="y")
+z = model.addVars(num_ids, num_depts, num_depts, num_k, vtype=GRB.CONTINUOUS, name="z")
 
 # Objective
 model.setObjective(quicksum(x[i,j,k,s] for i in range(num_ids)
