@@ -73,7 +73,7 @@ def generate_scenario(applicant_count, avg_slots, dept_count, scenario_id):
         id = i + 1
         allowed_dept_count = max(1, dept_count // 2)
         allowed_depts = random.sample(depts, allowed_dept_count)
-        slot_count = max(1, int(random.gauss(avg_slots, 1)))
+        slot_count = max(1, int(random.gauss(avg_slots, 4)))
         for _ in range(slot_count):
             dept = random.choice(allowed_depts)
             # 隨機選一天有 available 的 slot

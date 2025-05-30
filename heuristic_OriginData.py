@@ -431,201 +431,68 @@ class InterviewSchedulerOptimized:
         return urgency_score
 
     def greedy_assignment(self):
-        """Main greedy assignment algorithm - prioritize most time-constrained (applicant, dept) combinations first."""
-        print("Starting greedy assignment with (applicant, department) urgency-based prioritization...")
+        """Main greedy assignment algorithm - dynamically update priorities after each assignment."""
+        print("Starting greedy assignment with dynamic urgency-based prioritization...")
         
-        # # Analyze constraints before starting
-        # constraint_analysis = self.analyze_applicant_constraints()
-        
-        # Create all possible (applicant, department) combinations and sort by urgency
-        applicant_dept_priorities = []
-        for applicant in self.applicants:
-            for dept in self.departments:
-                priority = self.calculate_applicant_dept_priority(applicant, dept)
-                if priority != float('inf'):  # Only include if applicant has availability for this dept
-                    applicant_dept_priorities.append((priority, applicant, dept))
-        
-        applicant_dept_priorities.sort()  # Lower score = higher priority
-        
-        print(f"Found {len(applicant_dept_priorities)} valid (applicant, department) combinations")
-        print("Top 10 most urgent (applicant, dept) combinations:")
-        for i, (priority, applicant, dept) in enumerate(applicant_dept_priorities[:10]):
-            name = self.applicant_names.get(applicant, f"ID_{applicant}")
-            available_hours = sum(
-                (end - start) for date_k in self.dates
-                for start, end in self.available_times.get((applicant, dept, date_k), [])
-            ) / 60
-            print(f"  {i+1}. {name} ({applicant}) - {dept}: {available_hours:.1f}h available")        
         assignments_made = 0
-          # Phase 1: Ensure every applicant gets at least one interview, with light same-day preference
-        print("Phase 1: Processing most urgent (applicant, dept) combinations (max 1 per applicant)...")
+        scheduled_pairs = set()  # (applicant, dept) 已排過的組合
         
-        phase1_assignments = 0
-        applicants_with_interview = set()
-        
-        for priority, applicant, dept in applicant_dept_priorities:
-            # Skip if this applicant already has an interview for this department
-            if self.applicant_dept_count[applicant][dept] > 0:
-                continue
-                
-            # Phase 1 limit: only one interview per applicant
-            if applicant in applicants_with_interview:
-                continue
-                
+        while True:
+            # 動態計算所有還沒排過的 applicant-dept priority
+            applicant_dept_priorities = []
+            for applicant in self.applicants:
+                for dept in self.departments:
+                    if (applicant, dept) in scheduled_pairs:
+                        continue
+                    if self.applicant_dept_count[applicant][dept] > 0:
+                        continue
+                    priority = self.calculate_applicant_dept_priority(applicant, dept)
+                    if priority != float('inf'):
+                        applicant_dept_priorities.append((priority, applicant, dept))
+            if not applicant_dept_priorities:
+                break
+            applicant_dept_priorities.sort()  # Lower score = higher priority
+            # 只取最緊急的那一組
+            priority, applicant, dept = applicant_dept_priorities[0]
             name = self.applicant_names.get(applicant, f"ID_{applicant}")
             available_hours = sum(
                 (end - start) for date_k in self.dates
                 for start, end in self.available_times.get((applicant, dept, date_k), [])
             ) / 60
-            
             print(f"  Processing {name} ({applicant}) - {dept}: {available_hours:.1f}h available")
-            
-            # Find the best time slot with slight same-day preference
+            # 找最佳時段
             best_assignment = None
             best_score = float('-inf')
-            
             for date_k in self.dates:
                 feasible_times = self.find_feasible_times(applicant, dept, date_k)
-                
                 for start_time in feasible_times:
-                    # Base scoring: prefer earlier dates and times
-                    time_preference = -start_time // 60  # Prefer earlier times
-                    date_preference = -date_k * 10       # Prefer earlier dates
-                    
-                    # Light same-day preference: small bonus if this day already has other interviews
+                    time_preference = -start_time // 60
+                    date_preference = -date_k * 10
                     existing_interviews_on_date = len(self.applicant_occupied_times[(applicant, date_k)])
-                    same_day_bonus = existing_interviews_on_date * 50  # Light preference (much smaller than urgency diff)
-                    
+                    same_day_bonus = existing_interviews_on_date * 100
                     score = time_preference + date_preference + same_day_bonus
-                    
                     if score > best_score:
                         best_score = score
                         best_assignment = (dept, date_k, start_time)
-            
-            # Assign the best option found
+            # 排入
             if best_assignment:
                 dept, date_k, start_time = best_assignment
                 duration = self.interview_duration[dept]
                 end_time = start_time + duration
-                
                 if self.can_schedule_interview(applicant, dept, date_k, start_time, end_time):
                     self.assign_interview(applicant, dept, date_k, start_time)
-                    applicants_with_interview.add(applicant)
-                    phase1_assignments += 1
+                    scheduled_pairs.add((applicant, dept))
+                    assignments_made += 1
                     bonus_str = "(same-day)" if best_score % 100 >= 50 else ""
                     print(f"    ✓ Assigned {dept} on day {date_k} at {self.minutes_to_time_str(start_time)} {bonus_str}")
                 else:
-                    print(f"    ✗ Failed to assign (conflict detected)")        # Check how many applicants got at least one interview
+                    print(f"    ✗ Failed to assign (conflict detected)")
+            else:
+                # 沒有可行時段，標記為已排過，避免無限迴圈
+                scheduled_pairs.add((applicant, dept))
         scheduled_applicants = len(set(a for a, _, _, _, _ in self.schedule))
-        print(f"Phase 1 completed: {phase1_assignments} interviews assigned, {scheduled_applicants}/{len(self.applicants)} applicants have interviews")
-        
-        # Phase 2: Add second interviews prioritizing same-day consolidation
-        print("Phase 2: Adding second interviews with strong same-day preference...")
-        phase2_assignments = 0
-        
-        for priority, applicant, dept in applicant_dept_priorities:
-            # Skip if this applicant already has an interview for this department
-            if self.applicant_dept_count[applicant][dept] > 0:
-                continue
-                
-            # Skip if this applicant already has 2 or more interviews
-            if self.applicant_interview_count[applicant] >= 2:
-                continue
-            
-            name = self.applicant_names.get(applicant, f"ID_{applicant}")
-            
-            # Find best time slot with strong preference for same day as existing interview
-            best_assignment = None
-            best_score = float('-inf')
-            
-            for date_k in self.dates:
-                feasible_times = self.find_feasible_times(applicant, dept, date_k)
-                
-                for start_time in feasible_times:
-                    # Strong preference for same day as existing interview
-                    existing_interviews_on_date = len(self.applicant_occupied_times[(applicant, date_k)])
-                    if existing_interviews_on_date > 0:
-                        consolidation_bonus = 2000  # Strong preference for same day
-                    else:
-                        consolidation_bonus = 0
-                    
-                    time_preference = -start_time // 60
-                    date_preference = -date_k * 10
-                    
-                    score = consolidation_bonus + time_preference + date_preference
-                    
-                    if score > best_score:
-                        best_score = score
-                        best_assignment = (dept, date_k, start_time)
-            
-            # Assign the best option found
-            if best_assignment:
-                dept, date_k, start_time = best_assignment
-                duration = self.interview_duration[dept]
-                end_time = start_time + duration
-                
-                if self.can_schedule_interview(applicant, dept, date_k, start_time, end_time):
-                    self.assign_interview(applicant, dept, date_k, start_time)
-                    phase2_assignments += 1
-                    if best_score >= 2000:  # Has consolidation bonus
-                        print(f"    ✓ {name}: Added {dept} on SAME day {date_k}")
-                    else:
-                        print(f"    ✓ {name}: Added {dept} on day {date_k}")
-        
-        print(f"Phase 2 completed: {phase2_assignments} second interviews added")
-        
-        # Phase 3: Try to add remaining high-priority combinations that didn't get scheduled
-        print("Phase 3: Processing remaining urgent combinations...")
-        phase3_assignments = 0
-        
-        for priority, applicant, dept in applicant_dept_priorities:
-            # Skip if this applicant already has an interview for this department
-            if self.applicant_dept_count[applicant][dept] > 0:
-                continue
-                
-            # Skip if this applicant already has 3 or more interviews (rare but possible)
-            if self.applicant_interview_count[applicant] >= 3:
-                continue
-            
-            name = self.applicant_names.get(applicant, f"ID_{applicant}")
-            
-            # Find any available time slot 
-            best_assignment = None
-            best_score = float('-inf')
-            
-            for date_k in self.dates:
-                feasible_times = self.find_feasible_times(applicant, dept, date_k)
-                
-                for start_time in feasible_times:
-                    # Light preference for same day, but not as strong as Phase 2
-                    existing_interviews_on_date = len(self.applicant_occupied_times[(applicant, date_k)])
-                    same_day_bonus = existing_interviews_on_date * 100  # Light preference
-                    
-                    time_preference = -start_time // 60
-                    date_preference = -date_k * 10
-                    
-                    score = same_day_bonus + time_preference + date_preference
-                    
-                    if score > best_score:
-                        best_score = score
-                        best_assignment = (dept, date_k, start_time)
-            
-            # Assign the best option found
-            if best_assignment:
-                dept, date_k, start_time = best_assignment
-                duration = self.interview_duration[dept]
-                end_time = start_time + duration
-                
-                if self.can_schedule_interview(applicant, dept, date_k, start_time, end_time):
-                    self.assign_interview(applicant, dept, date_k, start_time)
-                    phase3_assignments += 1
-                    same_day_str = "(same-day)" if best_score >= 100 else ""
-                    print(f"    ✓ {name}: Added {dept} on day {date_k} {same_day_str}")
-        
-        print(f"Phase 3 completed: {phase3_assignments} additional interviews added")
-        print(f"Total greedy assignment: {phase1_assignments + phase2_assignments + phase3_assignments} interviews assigned")
-        
-        return phase1_assignments + phase2_assignments + phase3_assignments
+        print(f"Phase 1 completed: {assignments_made} interviews assigned, {scheduled_applicants}/{len(self.applicants)} applicants have interviews")
+        return assignments_made 
       
     def solve_heuristic(self):
         """Main solving function with full coverage priority."""
@@ -730,9 +597,6 @@ class InterviewSchedulerOptimized:
             print(f"\nAverage days per applicant: {avg_days:.2f}")
           # Multi-day analysis
         self.analyze_multi_day_applicants()
-        
-        # Detailed consolidation analysis
-        self.detailed_consolidation_analysis()
     
     def export_schedule(self, filename='optimized_schedule.csv'):
         """Export schedule to CSV."""
@@ -797,112 +661,6 @@ class InterviewSchedulerOptimized:
         
         return len(multi_day_applicants)
 
-    def detailed_consolidation_analysis(self):
-        """Detailed analysis of why multi-day applicants can't be consolidated."""
-        print(f"\n{'='*70}")
-        print("DETAILED CONSOLIDATION ANALYSIS")
-        print("="*70)
-        
-        # Get multi-day applicants
-        applicant_days = defaultdict(set)
-        applicant_interviews = defaultdict(list)
-        for a, dept, k, start_time, end_time in self.schedule:
-            applicant_days[a].add(k)
-            applicant_interviews[a].append((dept, k, start_time, end_time))
-        
-        multi_day_applicants = [a for a, days in applicant_days.items() if len(days) > 1]
-        
-        if not multi_day_applicants:
-            print("No multi-day applicants to analyze!")
-            return
-        
-        for applicant in multi_day_applicants:
-            name = self.applicant_names.get(applicant, f"ID_{applicant}")
-            interviews = applicant_interviews[applicant]
-            days = sorted(list(applicant_days[applicant]))
-            
-            print(f"\nAnalyzing {name} ({applicant}) - {len(days)} days: {days}")
-            print("-" * 60)
-            
-            # Show current schedule
-            print("Current interviews:")
-            for dept, k, start_time, end_time in interviews:
-                start_str = self.minutes_to_time_str(start_time)
-                end_str = self.minutes_to_time_str(end_time)
-                print(f"  Day {k}: {dept} ({start_str}-{end_str})")
-            
-            # For each pair of days, check consolidation possibility
-            for i, day1 in enumerate(days):
-                for day2 in days[i+1:]:
-                    print(f"\nConsolidation possibility: Day {day1} → Day {day2}")
-                    
-                    # Get interviews on day1 that could potentially move to day2
-                    day1_interviews = [(dept, st, et) for dept, k, st, et in interviews if k == day1]
-                    day2_interviews = [(dept, st, et) for dept, k, st, et in interviews if k == day2]
-                    
-                    print(f"  Day {day1} interviews: {len(day1_interviews)}")
-                    print(f"  Day {day2} interviews: {len(day2_interviews)}")
-                    
-                    # Check if applicant is available for all needed departments on day2
-                    for dept, st, et in day1_interviews:
-                        available_on_day2 = self.available_times.get((applicant, dept, day2), [])
-                        
-                        if not available_on_day2:
-                            print(f"  ❌ {dept} interview CANNOT move: No availability on day {day2}")
-                            continue
-                        
-                        # Check available time windows
-                        total_available_minutes = sum(end - start for start, end in available_on_day2)
-                        duration_needed = self.interview_duration[dept]
-                        
-                        print(f"  ✓ {dept} interview CAN move: {total_available_minutes/60:.1f}h available on day {day2} (need {duration_needed}min)")
-                        
-                        # Check if there's actually space considering existing interviews
-                        temp_schedule_backup = self.schedule.copy()
-                        temp_dept_backup = {k: v.copy() for k, v in self.dept_occupied_times.items()}
-                        temp_app_backup = {k: v.copy() for k, v in self.applicant_occupied_times.items()}
-                        
-                        try:
-                            # Remove the interview from day1
-                            self.remove_interview(applicant, dept, day1, st)
-                            
-                            # Try to find space on day2
-                            feasible_times = self.find_feasible_times(applicant, dept, day2)
-                            
-                            if feasible_times:
-                                print(f"    → Could schedule at: {[self.minutes_to_time_str(t) for t in feasible_times[:3]]}")
-                            else:
-                                print(f"    → NO feasible times found (conflicts with existing schedule)")
-                                
-                                # Check what's blocking it
-                                existing_day2 = self.dept_occupied_times[(dept, day2)]
-                                if existing_day2:
-                                    print(f"      Department {dept} occupied times on day {day2}: {[(self.minutes_to_time_str(s), self.minutes_to_time_str(e)) for s, e in existing_day2[:3]]}")
-                                
-                                existing_app_day2 = self.applicant_occupied_times[(applicant, day2)]
-                                if existing_app_day2:
-                                    print(f"      Applicant occupied times on day {day2}: {[(self.minutes_to_time_str(s), self.minutes_to_time_str(e), d) for s, e, d in existing_app_day2]}")
-                        
-                        finally:
-                            # Restore original state
-                            self.schedule = temp_schedule_backup
-                            self.dept_occupied_times = temp_dept_backup
-                            self.applicant_occupied_times = temp_app_backup
-                            
-                    print(f"\nConsolidation possibility: Day {day2} → Day {day1}")
-                    
-                    # Check reverse direction (day2 to day1)
-                    for dept, st, et in day2_interviews:
-                        available_on_day1 = self.available_times.get((applicant, dept, day1), [])
-                        
-                        if not available_on_day1:
-                            print(f"  ❌ {dept} interview CANNOT move: No availability on day {day1}")
-                            continue
-                        
-                        total_available_minutes = sum(end - start for start, end in available_on_day1)
-                        duration_needed = self.interview_duration[dept]
-                        
-                        print(f"  ✓ {dept} interview CAN move: {total_available_minutes/60:.1f}h available on day {day1} (need {duration_needed}min)")
 
 def main():
     """Main function."""
