@@ -478,6 +478,60 @@ class InterviewSchedulerOptimized:
         # Update counters
         self.applicant_interview_count[applicant] -= 1
         self.applicant_dept_count[applicant][dept] -= 1
+
+    # def analyze_applicant_constraints(self):
+    #     """Analyze and report constraint levels for debugging."""
+    #     print("\nAnalyzing applicant time constraints...")
+        
+    #     constraint_levels = []
+    #     for applicant in self.applicants:
+    #         total_minutes = 0
+    #         dept_breakdown = {}
+            
+    #         for dept in self.departments:
+    #             dept_minutes = 0
+    #             for date_k in self.dates:
+    #                 ranges = self.available_times.get((applicant, dept, date_k), [])
+    #                 for start, end in ranges:
+    #                     dept_minutes += (end - start)
+    #             dept_breakdown[dept] = dept_minutes
+    #             total_minutes += dept_minutes
+            
+    #         total_hours = total_minutes / 60
+    #         priority = self.calculate_applicant_priority(applicant)
+            
+    #         constraint_levels.append({
+    #             'applicant': applicant,
+    #             'total_hours': total_hours,
+    #             'priority': priority,
+    #             'dept_breakdown': dept_breakdown
+    #         })
+        
+    #     # Sort by priority (most urgent first)
+    #     constraint_levels.sort(key=lambda x: x['priority'])
+        
+    #     print("Most time-constrained applicants (top 10):")
+    #     for i, info in enumerate(constraint_levels[:10]):
+    #         name = self.applicant_names.get(info['applicant'], f"ID_{info['applicant']}")
+    #         print(f"  {i+1}. {name} ({info['applicant']}): {info['total_hours']:.1f} hours total")
+            
+    #         # Show department breakdown for very constrained applicants
+    #         if info['total_hours'] < 3:
+    #             dept_hours = {dept: minutes/60 for dept, minutes in info['dept_breakdown'].items() if minutes > 0}
+    #             print(f"     Available by dept: {dept_hours}")
+        
+    #     print(f"\nConstraint summary:")
+    #     very_constrained = sum(1 for x in constraint_levels if x['total_hours'] < 2)
+    #     constrained = sum(1 for x in constraint_levels if 2 <= x['total_hours'] < 4)
+    #     moderate = sum(1 for x in constraint_levels if 4 <= x['total_hours'] < 8)
+    #     flexible = sum(1 for x in constraint_levels if x['total_hours'] >= 8)
+        
+    #     print(f"  Very constrained (<2h): {very_constrained} applicants")
+    #     print(f"  Constrained (2-4h): {constrained} applicants") 
+    #     print(f"  Moderate (4-8h): {moderate} applicants")
+    #     print(f"  Flexible (≥8h): {flexible} applicants")
+        
+    #     return constraint_levels
     
     def calculate_applicant_dept_priority(self, applicant, dept):
         """Calculate priority for (applicant, department) combination."""
@@ -512,8 +566,8 @@ class InterviewSchedulerOptimized:
         """Main greedy assignment algorithm - prioritize most time-constrained (applicant, dept) combinations first."""
         print("Starting greedy assignment with (applicant, department) urgency-based prioritization...")
         
-        # Analyze constraints before starting
-        constraint_analysis = self.analyze_applicant_constraints()
+        # # Analyze constraints before starting
+        # constraint_analysis = self.analyze_applicant_constraints()
         
         # Create all possible (applicant, department) combinations and sort by urgency
         applicant_dept_priorities = []
