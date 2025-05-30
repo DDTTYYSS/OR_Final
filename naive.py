@@ -17,7 +17,7 @@ import pandas as pd
 import time
 from datetime import datetime
 from collections import defaultdict
-from heuristic import InterviewSchedulerOptimized
+from heuristic_OriginData import InterviewSchedulerOptimized
 
 class NaiveInterviewScheduler(InterviewSchedulerOptimized):
     def __init__(self, csv_file='availability_records.csv'):

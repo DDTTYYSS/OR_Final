@@ -103,6 +103,14 @@ scenarios = [
     (100, 8, 8),   # 7
 ]
 
+# (10, 4, 4),   # 1
+    # (5, 4, 4),   # 2
+    # (20, 4, 4),  # 3
+    # (10, 2, 4),   # 4
+    # (10, 8, 4),   # 5
+    # (10, 2, 2),   # 6
+    # (10, 2, 2),   # 7
+
 if __name__ == "__main__":
     for idx, (a, s, d) in enumerate(scenarios, 1):
         generate_scenario(a, s, d, idx)

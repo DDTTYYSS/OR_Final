@@ -8,11 +8,13 @@ import generateInstance4
 from heuristic_OriginData import InterviewSchedulerOptimized
 from naive import NaiveInterviewScheduler
 import time
+from collections import defaultdict
 os.environ['GRB_LICENSE_FILE'] = r"/Users/albert/gurobi/gurobi.lic"
 
 class ComparisonSolver:
     def __init__(self):
-        self.results_file = "comparison_results.txt"
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        self.results_file = f"comparison_results_{timestamp}.txt"
         self.summary_stats = []
         
         # Given session counts per day
@@ -98,15 +100,29 @@ class ComparisonSolver:
     
     def run_naive(self, csv_path, dept_duration_path):
         """Run the naive algorithm on a scenario"""
-        start_time = time.time()
+        start = time.perf_counter()  # Use perf_counter for precise timing
+        
+        # Initialize and run naive scheduler
         scheduler = NaiveInterviewScheduler(csv_path)
-        # Set the interview durations from the department duration file
-        durations_df = pd.read_csv(dept_duration_path)
-        scheduler.interview_duration = dict(zip(durations_df['dept'], durations_df['duration']))
+        scheduler.interview_duration = dict(zip(pd.read_csv(dept_duration_path)['dept'], 
+                                             pd.read_csv(dept_duration_path)['duration']))
         scheduler.reset_solution()
         total_assigned = scheduler.naive_schedule()
-        end_time = time.time()
-        return total_assigned, end_time - start_time
+        
+        # Convert schedule to the format needed for comparison
+        schedule = []
+        for applicant, dept, day, start_time, end_time in scheduler.schedule:
+            schedule.append({
+                'ID': applicant,
+                'Department': dept,
+                'Day': day,
+                'Start_Time': scheduler.minutes_to_time_str(start_time),
+                'End_Time': scheduler.minutes_to_time_str(end_time),
+                'Duration': end_time - start_time
+            })
+        
+        execution_time = time.perf_counter() - start  # Calculate elapsed time in seconds
+        return schedule, execution_time
     
     def run_heuristic(self, csv_path, dept_duration_path):
         """Run the heuristic algorithm on a scenario"""
@@ -266,141 +282,248 @@ class ComparisonSolver:
 
     def run_comparison(self):
         """Run comparison between heuristic and Gurobi approaches"""
-        with open(self.results_file, 'w', encoding='utf-8') as f:
-            original_stdout = sys.stdout
-            sys.stdout = TeeOutput(original_stdout, f)
-            
-            try:
-                print(f"GIS Taiwan Interview Scheduling Comparison Results")
-                print(f"Generated at: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-                print("=" * 80)
-                print()
-                
-                # Generate all scenario instances
-                print("Generating all scenario instances...")
-                for idx, (a, s, d) in enumerate(generateInstance4.scenarios, 1):
-                    generateInstance4.generate_scenario(a, s, d, idx)
-                print("All scenario instances generated.\n")
-                
-                # Compare approaches for each scenario
-                for idx in range(1, len(generateInstance4.scenarios) + 1):
-                    print(f"{'='*50}")
-                    print(f"SCENARIO {idx}")
-                    print(f"{'='*50}")
-                    
-                    # Process data for both approaches
-                    csv_path = f"scenario_{idx}.csv"
-                    dept_duration_path = f"scenario_{idx}_dept_duration.csv"
-                    
-                    # Convert to 4D format for Gurobi
-                    print("\nProcessing availability data to 4D format...")
-                    df_4d = self.process_availability_to_4d(csv_path, dept_duration_path)
-                    
-                    # Calculate total possible independent interviews
-                    # Calculate maximum possible interviews (unique applicant-department combinations)
-                    unique_applicant_dept_combinations = set()
-                    for _, row in df_4d[df_4d['available'] == 1].iterrows():
-                        unique_applicant_dept_combinations.add((row['ID'], row['dept']))
-                    total_possible = len(unique_applicant_dept_combinations)
-                    
-                    # Run naive
-                    print("\nRunning naive algorithm...")
-                    naive_results, naive_time = self.run_naive(csv_path, dept_duration_path)
-                    
-                    # Run heuristic
-                    print("\nRunning heuristic algorithm...")
-                    heuristic_scheduler, heuristic_time = self.run_heuristic(csv_path, dept_duration_path)
-                    heuristic_results = len(heuristic_scheduler.schedule)
-                    
-                    # Run Gurobi
-                    print("\nRunning Gurobi optimization...")
-                    gurobi_results, gurobi_time = self.run_gurobi(df_4d, dept_duration_path)
-                    gurobi_count = len(gurobi_results) if gurobi_results is not None else 0
-                    
-                    # Compare results
-                    print(f"\nResults for Scenario {idx}:")
-                    print(f"Total possible interviews: {total_possible}")
-                    print(f"Naive algorithm scheduled: {naive_results} interviews (Time: {naive_time:.2f}s)")
-                    print(f"Heuristic algorithm scheduled: {heuristic_results} interviews (Time: {heuristic_time:.2f}s)")
-                    print(f"Gurobi optimization scheduled: {gurobi_count} interviews (Time: {gurobi_time:.2f}s)")
-                    print(f"Success rate - Naive: {(naive_results/total_possible*100):.1f}%")
-                    print(f"Success rate - Heuristic: {(heuristic_results/total_possible*100):.1f}%")
-                    print(f"Success rate - Gurobi: {(gurobi_count/total_possible*100):.1f}%")
-                    
-                    # Store comparison stats
-                    self.summary_stats.append({
-                        'scenario': idx,
-                        'total_possible': total_possible,
-                        'naive_scheduled': naive_results,
-                        'heuristic_scheduled': heuristic_results,
-                        'gurobi_scheduled': gurobi_count,
-                        'naive_time': naive_time,
-                        'heuristic_time': heuristic_time,
-                        'gurobi_time': gurobi_time,
-                        'naive_success_rate': naive_results/total_possible*100,
-                        'heuristic_success_rate': heuristic_results/total_possible*100,
-                        'gurobi_success_rate': gurobi_count/total_possible*100
-                    })
-                    
-                    print("\n" + "-"*50 + "\n")
-                
-                # Print summary statistics
-                print("\n" + "=" * 80)
-                print("SUMMARY STATISTICS")
-                print("=" * 80)
-                print(f"{'Scenario':<10} {'Total':<10} {'Naive':<12} {'Heuristic':<12} {'Gurobi':<12} {'N-Time':<10} {'H-Time':<10} {'G-Time':<10} {'N-Rate':<10} {'H-Rate':<10} {'G-Rate':<10} {'N-Gap':<10} {'H-Gap':<10} {'N-Time%':<10} {'H-Time%':<10}")
-                print("-" * 160)
-                
-                total_possible_all = 0
-                total_naive = 0
-                total_heuristic = 0
-                total_gurobi = 0
-                total_naive_time = 0
-                total_heuristic_time = 0
-                total_gurobi_time = 0
-                
-                for stats in self.summary_stats:
-                    # Calculate optimality gaps
-                    naive_gap = ((stats['gurobi_scheduled'] - stats['naive_scheduled']) / stats['gurobi_scheduled'] * 100) if stats['gurobi_scheduled'] > 0 else 0
-                    heuristic_gap = ((stats['gurobi_scheduled'] - stats['heuristic_scheduled']) / stats['gurobi_scheduled'] * 100) if stats['gurobi_scheduled'] > 0 else 0
-                    
-                    # Calculate time percentages relative to Gurobi
-                    naive_time_pct = (stats['naive_time'] / stats['gurobi_time'] * 100) if stats['gurobi_time'] > 0 else 0
-                    heuristic_time_pct = (stats['heuristic_time'] / stats['gurobi_time'] * 100) if stats['gurobi_time'] > 0 else 0
-                    
-                    print(f"{stats['scenario']:<10} {stats['total_possible']:<10} "
-                          f"{stats['naive_scheduled']:<12} {stats['heuristic_scheduled']:<12} {stats['gurobi_scheduled']:<12} "
-                          f"{stats['naive_time']:<10.2f} {stats['heuristic_time']:<10.2f} {stats['gurobi_time']:<10.2f} "
-                          f"{stats['naive_success_rate']:<10.1f} {stats['heuristic_success_rate']:<10.1f} {stats['gurobi_success_rate']:<10.1f} "
-                          f"{naive_gap:<10.1f} {heuristic_gap:<10.1f} "
-                          f"{naive_time_pct:<10.1f} {heuristic_time_pct:<10.1f}")
-                    total_possible_all += stats['total_possible']
-                    total_naive += stats['naive_scheduled']
-                    total_heuristic += stats['heuristic_scheduled']
-                    total_gurobi += stats['gurobi_scheduled']
-                    total_naive_time += stats['naive_time']
-                    total_heuristic_time += stats['heuristic_time']
-                    total_gurobi_time += stats['gurobi_time']
-                
-                # Calculate total optimality gaps
-                total_naive_gap = ((total_gurobi - total_naive) / total_gurobi * 100) if total_gurobi > 0 else 0
-                total_heuristic_gap = ((total_gurobi - total_heuristic) / total_gurobi * 100) if total_gurobi > 0 else 0
-                
-                # Calculate total time percentages
-                total_naive_time_pct = (total_naive_time / total_gurobi_time * 100) if total_gurobi_time > 0 else 0
-                total_heuristic_time_pct = (total_heuristic_time / total_gurobi_time * 100) if total_gurobi_time > 0 else 0
-                
-                print("-" * 160)
-                print(f"{'TOTAL':<10} {total_possible_all:<10} {total_naive:<12} {total_heuristic:<12} {total_gurobi:<12} "
-                      f"{total_naive_time:<10.2f} {total_heuristic_time:<10.2f} {total_gurobi_time:<10.2f} "
-                      f"{(total_naive/total_possible_all*100):<10.1f} {(total_heuristic/total_possible_all*100):<10.1f} {(total_gurobi/total_possible_all*100):<10.1f} "
-                      f"{total_naive_gap:<10.1f} {total_heuristic_gap:<10.1f} "
-                      f"{total_naive_time_pct:<10.1f} {total_heuristic_time_pct:<10.1f}")
-                
-            finally:
-                sys.stdout = original_stdout
+        num_runs = 10
+        all_runs_stats = []  # Store stats for all runs
         
-        print(f"\nAll results have been saved to {self.results_file}")
+        # Create timestamp for this comparison run
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        
+        for run in range(num_runs):
+            print(f"\n{'='*80}")
+            print(f"RUN {run + 1} of {num_runs}")
+            print(f"{'='*80}\n")
+            
+            # Create a unique filename for this run
+            run_timestamp = f"{timestamp}_run_{run + 1}"
+            with open(f"comparison_results_{run_timestamp}.txt", 'w', encoding='utf-8') as f:
+                original_stdout = sys.stdout
+                sys.stdout = TeeOutput(original_stdout, f)
+                
+                try:
+                    print(f"GIS Taiwan Interview Scheduling Comparison Results")
+                    print(f"Generated at: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+                    print("=" * 80)
+                    print()
+                    
+                    # Generate all scenario instances
+                    print("Generating all scenario instances...")
+                    for idx, (a, s, d) in enumerate(generateInstance4.scenarios, 1):
+                        generateInstance4.generate_scenario(a, s, d, idx)
+                    print("All scenario instances generated.\n")
+                    
+                    # Compare approaches for each scenario
+                    run_stats = []  # Store stats for this run
+                    for idx in range(1, len(generateInstance4.scenarios) + 1):
+                        print(f"{'='*50}")
+                        print(f"SCENARIO {idx}")
+                        print(f"{'='*50}")
+                        
+                        # Process data for both approaches
+                        csv_path = f"scenario_{idx}.csv"
+                        dept_duration_path = f"scenario_{idx}_dept_duration.csv"
+                        
+                        # Convert to 4D format for Gurobi
+                        print("\nProcessing availability data to 4D format...")
+                        df_4d = self.process_availability_to_4d(csv_path, dept_duration_path)
+                        
+                        # Calculate total possible independent interviews
+                        unique_applicant_dept_combinations = set()
+                        for _, row in df_4d[df_4d['available'] == 1].iterrows():
+                            unique_applicant_dept_combinations.add((row['ID'], row['dept']))
+                        total_possible = len(unique_applicant_dept_combinations)
+                        
+                        # Run naive
+                        print("\nRunning naive algorithm...")
+                        naive_results, naive_time = self.run_naive(csv_path, dept_duration_path)
+                        
+                        # Run heuristic
+                        print("\nRunning heuristic algorithm...")
+                        heuristic_scheduler, heuristic_time = self.run_heuristic(csv_path, dept_duration_path)
+                        heuristic_results = len(heuristic_scheduler.schedule)
+                        
+                        # Run Gurobi
+                        print("\nRunning Gurobi optimization...")
+                        gurobi_results, gurobi_time = self.run_gurobi(df_4d, dept_duration_path)
+                        gurobi_count = len(gurobi_results) if gurobi_results is not None else 0
+                        
+                        # Calculate day distributions
+                        naive_day_dist = self.calculate_day_distribution(naive_results)
+                        heuristic_day_dist = self.calculate_day_distribution(heuristic_scheduler.schedule)
+                        gurobi_day_dist = self.calculate_day_distribution(gurobi_results)
+                        
+                        # Store stats for this scenario
+                        scenario_stats = {
+                            'scenario': idx,
+                            'total_possible': total_possible,
+                            'naive_scheduled': len(naive_results),
+                            'heuristic_scheduled': heuristic_results,
+                            'gurobi_scheduled': gurobi_count,
+                            'naive_time': naive_time,
+                            'heuristic_time': heuristic_time,
+                            'gurobi_time': gurobi_time,
+                            'naive_day_dist': naive_day_dist,
+                            'heuristic_day_dist': heuristic_day_dist,
+                            'gurobi_day_dist': gurobi_day_dist
+                        }
+                        run_stats.append(scenario_stats)
+                        
+                        # Print results for this scenario
+                        print(f"\nResults for Scenario {idx}:")
+                        print(f"Total possible interviews: {total_possible}")
+                        print(f"Naive algorithm scheduled: {len(naive_results)} interviews (Time: {naive_time:.2f}s)")
+                        print(f"Heuristic algorithm scheduled: {heuristic_results} interviews (Time: {heuristic_time:.2f}s)")
+                        print(f"Gurobi optimization scheduled: {gurobi_count} interviews (Time: {gurobi_time:.2f}s)")
+                        
+                        # Print day distribution for this scenario
+                        print("\nDay Distribution (Number of applicants requiring X days):")
+                        print(f"{'Days':<10} {'Naive':<12} {'Heuristic':<12} {'Gurobi':<12}")
+                        print("-" * 50)
+                        
+                        all_day_counts = set()
+                        for dist in [naive_day_dist, heuristic_day_dist, gurobi_day_dist]:
+                            all_day_counts.update(dist.keys())
+                        
+                        for days in sorted(all_day_counts):
+                            print(f"{days:<10} {naive_day_dist[days]:<12} {heuristic_day_dist[days]:<12} {gurobi_day_dist[days]:<12}")
+                        
+                        def calculate_avg_days(dist):
+                            if not dist:
+                                return 0
+                            total_applicants = sum(dist.values())
+                            total_days = sum(days * count for days, count in dist.items())
+                            return total_days / total_applicants
+                        
+                        print("-" * 50)
+                        print(f"{'Average':<10} {calculate_avg_days(naive_day_dist):<12.2f} {calculate_avg_days(heuristic_day_dist):<12.2f} {calculate_avg_days(gurobi_day_dist):<12.2f}")
+                        
+                        print("\n" + "-"*50 + "\n")
+                    
+                    all_runs_stats.append(run_stats)
+                    
+                finally:
+                    sys.stdout = original_stdout
+        
+        # Save statistics to CSV
+        stats_data = []
+        
+        # Process scenario statistics
+        for scenario_idx in range(len(generateInstance4.scenarios)):
+            scenario_data = {
+                'Scenario': scenario_idx + 1,
+                'Type': 'Scenario'
+            }
+            
+            # Collect data for this scenario across all runs
+            for metric in ['naive_scheduled', 'heuristic_scheduled', 'gurobi_scheduled',
+                          'naive_time', 'heuristic_time', 'gurobi_time']:
+                values = [run_stats[scenario_idx][metric] for run_stats in all_runs_stats]
+                mean = sum(values) / len(values)
+                variance = sum((x - mean) ** 2 for x in values) / len(values)
+                std_dev = variance ** 0.5
+                
+                scenario_data[f'{metric}_mean'] = mean
+                scenario_data[f'{metric}_std_dev'] = std_dev
+            
+            # Calculate average days statistics
+            for approach in ['naive', 'heuristic', 'gurobi']:
+                values = []
+                for run_stats in all_runs_stats:
+                    day_dist = run_stats[scenario_idx][f'{approach}_day_dist']
+                    if day_dist:
+                        total_applicants = sum(day_dist.values())
+                        total_days = sum(days * count for days, count in day_dist.items())
+                        avg_days = total_days / total_applicants if total_applicants > 0 else 0
+                    else:
+                        avg_days = 0
+                    values.append(avg_days)
+                
+                mean = sum(values) / len(values)
+                variance = sum((x - mean) ** 2 for x in values) / len(values)
+                std_dev = variance ** 0.5
+                
+                scenario_data[f'{approach}_avg_days_mean'] = mean
+                scenario_data[f'{approach}_avg_days_std_dev'] = std_dev
+            
+            stats_data.append(scenario_data)
+        
+        # Process overall statistics
+        overall_data = {
+            'Scenario': 'Overall',
+            'Type': 'Overall'
+        }
+        
+        for metric in ['naive_scheduled', 'heuristic_scheduled', 'gurobi_scheduled',
+                      'naive_time', 'heuristic_time', 'gurobi_time']:
+            values = []
+            for run_stats in all_runs_stats:
+                for stats in run_stats:
+                    values.append(stats[metric])
+            
+            mean = sum(values) / len(values)
+            variance = sum((x - mean) ** 2 for x in values) / len(values)
+            std_dev = variance ** 0.5
+            
+            overall_data[f'{metric}_mean'] = mean
+            overall_data[f'{metric}_std_dev'] = std_dev
+        
+        # Calculate overall average days statistics
+        for approach in ['naive', 'heuristic', 'gurobi']:
+            values = []
+            for run_stats in all_runs_stats:
+                for stats in run_stats:
+                    day_dist = stats[f'{approach}_day_dist']
+                    if day_dist:
+                        total_applicants = sum(day_dist.values())
+                        total_days = sum(days * count for days, count in day_dist.items())
+                        avg_days = total_days / total_applicants if total_applicants > 0 else 0
+                    else:
+                        avg_days = 0
+                    values.append(avg_days)
+            
+            mean = sum(values) / len(values)
+            variance = sum((x - mean) ** 2 for x in values) / len(values)
+            std_dev = variance ** 0.5
+            
+            overall_data[f'{approach}_avg_days_mean'] = mean
+            overall_data[f'{approach}_avg_days_std_dev'] = std_dev
+        
+        stats_data.append(overall_data)
+        
+        # Save to CSV
+        stats_df = pd.DataFrame(stats_data)
+        stats_df.to_csv(f"comparison_statistics_{timestamp}.csv", index=False)
+        
+        print(f"\nStatistics have been saved to comparison_statistics_{timestamp}.csv")
+
+    def calculate_day_distribution(self, schedule):
+        """Calculate the distribution of interview days per applicant."""
+        if schedule is None:
+            return {}
+            
+        # Track days per applicant
+        applicant_days = defaultdict(set)
+        
+        if isinstance(schedule, list):  # For naive and heuristic results
+            for record in schedule:
+                if isinstance(record, tuple):  # heuristic format
+                    applicant, _, day, _, _ = record
+                    applicant_days[applicant].add(day)
+                elif isinstance(record, dict):  # naive format
+                    applicant = record['ID']
+                    day = record['Day']
+                    applicant_days[applicant].add(day)
+        elif isinstance(schedule, pd.DataFrame):  # For Gurobi results
+            for _, row in schedule.iterrows():
+                applicant = row['ID']
+                day = row['Day']
+                applicant_days[applicant].add(day)
+        
+        # Count distribution
+        day_dist = defaultdict(int)
+        for days in applicant_days.values():
+            day_dist[len(days)] += 1
+            
+        return day_dist
 
 class TeeOutput:
     def __init__(self, *files):

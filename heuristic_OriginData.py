@@ -109,15 +109,15 @@ class InterviewSchedulerOptimized:
             for _, row in df.iterrows():
                 self.interview_duration[row['dept']] = int(row['duration'])
             print("Interview durations loaded from", self.dept_duration_file, ":", self.interview_duration)
-        else:
-            # 若無檔案則給預設值
-            self.interview_duration = {
-                'AC': 15,
-                'GPDA': 20,
-                'PR': 15,
-                'DM': 25
-            }
-            print("Interview durations (default):", self.interview_duration)
+        # else:
+        #     # 若無檔案則給預設值
+        #     self.interview_duration = {
+        #         'AC': 15,
+        #         'GPDA': 20,
+        #         'PR': 15,
+        #         'DM': 25
+        #     }
+        #     print("Interview durations (default):", self.interview_duration)
 
         # 若有新部門但沒在interview_duration裡，給預設15分鐘
         for dept in self.departments:
@@ -400,7 +400,7 @@ class InterviewSchedulerOptimized:
         # Update counters
         self.applicant_interview_count[applicant] -= 1
         self.applicant_dept_count[applicant][dept] -= 1
-
+    
     def calculate_applicant_dept_priority(self, applicant, dept):
         """Calculate priority for (applicant, department) combination."""
         # Calculate available time for this specific applicant-department combination
@@ -493,7 +493,7 @@ class InterviewSchedulerOptimized:
         scheduled_applicants = len(set(a for a, _, _, _, _ in self.schedule))
         print(f"Phase 1 completed: {assignments_made} interviews assigned, {scheduled_applicants}/{len(self.applicants)} applicants have interviews")
         return assignments_made 
-      
+    
     def solve_heuristic(self):
         """Main solving function with full coverage priority."""
         print("=" * 50)
