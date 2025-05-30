@@ -18,6 +18,7 @@ from collections import defaultdict
 import time
 from datetime import datetime, timedelta
 import os
+from itertools import combinations
 
 class InterviewSchedulerOptimized:
     def __init__(self, csv_file='availability_records.csv', dept_duration_file=None):
@@ -314,85 +315,6 @@ class InterviewSchedulerOptimized:
         print(f"Consolidation optimization completed: {consolidated_count} applicants consolidated")
         return consolidated_count
     
-    def local_optimization(self, max_iterations=30):
-        """Local optimization to minimize days while maintaining interview count."""
-        print("Starting local optimization...")
-        
-        improvements = 0
-        
-        for iteration in range(max_iterations):
-            improved = False
-            
-            for applicant in self.applicants:
-                # Find applicant's interviews
-                applicant_interviews = [
-                    (d, k, st, et) for (a, d, k, st, et) in self.schedule if a == applicant
-                ]
-                
-                if len(applicant_interviews) <= 1:
-                    continue
-                
-                # Group by date
-                interviews_by_date = defaultdict(list)
-                for dept, date_k, start_time, end_time in applicant_interviews:
-                    interviews_by_date[date_k].append((dept, start_time, end_time))
-                
-                # Find single-interview days and multi-interview days
-                single_days = [k for k, interviews in interviews_by_date.items() if len(interviews) == 1]
-                multi_days = [k for k, interviews in interviews_by_date.items() if len(interviews) > 1]
-                
-                if not single_days or not multi_days:
-                    continue
-                
-                # Try to move interviews from single days to multi days
-                for single_day in single_days:
-                    dept, old_start, old_end = interviews_by_date[single_day][0]
-                    
-                    for target_day in multi_days:
-                        # Remove the old interview temporarily
-                        self.remove_interview(applicant, dept, single_day, old_start)
-                        
-                        # Try to find a new time on target day
-                        feasible_times = self.find_feasible_times(applicant, dept, target_day)
-                        
-                        if feasible_times:
-                            # Assign to first feasible time
-                            new_start = feasible_times[0]
-                            self.assign_interview(applicant, dept, target_day, new_start)
-                            improved = True
-                            improvements += 1
-                            break
-                        else:
-                            # Restore the old interview if we can't move it
-                            self.assign_interview(applicant, dept, single_day, old_start)
-                    
-                    if improved:
-                        break
-                
-                if improved:
-                    break
-            
-            if not improved:
-                break
-        
-        print(f"Local optimization completed: {improvements} improvements made")
-                
-        # Check department conflicts
-        for dept in self.departments:
-            for date_k in self.dates:
-                dept_schedule = self.dept_occupied_times[(dept, date_k)]
-                for (start_time, end_time) in dept_schedule:  # interview_times 是你要檢查的時段清單
-                    for (occupied_start, occupied_end) in dept_schedule:
-                        if self.times_overlap(start_time, end_time, occupied_start, occupied_end):
-                            return False
-        
-        # Check applicant conflicts on same date
-        applicant_schedule = self.applicant_occupied_times[(applicant, date_k)]
-        for occupied_start, occupied_end, _ in applicant_schedule:
-            if self.times_overlap(start_time, end_time, occupied_start, occupied_end):
-                return False
-        
-        return True
     
     def find_feasible_times(self, applicant, dept, date_k):
         """Find all feasible start times for an interview."""
@@ -478,7 +400,7 @@ class InterviewSchedulerOptimized:
         # Update counters
         self.applicant_interview_count[applicant] -= 1
         self.applicant_dept_count[applicant][dept] -= 1
-    
+
     def calculate_applicant_dept_priority(self, applicant, dept):
         """Calculate priority for (applicant, department) combination."""
         # Calculate available time for this specific applicant-department combination
@@ -512,8 +434,8 @@ class InterviewSchedulerOptimized:
         """Main greedy assignment algorithm - prioritize most time-constrained (applicant, dept) combinations first."""
         print("Starting greedy assignment with (applicant, department) urgency-based prioritization...")
         
-        # Analyze constraints before starting
-        constraint_analysis = self.analyze_applicant_constraints()
+        # # Analyze constraints before starting
+        # constraint_analysis = self.analyze_applicant_constraints()
         
         # Create all possible (applicant, department) combinations and sort by urgency
         applicant_dept_priorities = []
@@ -704,125 +626,7 @@ class InterviewSchedulerOptimized:
         print(f"Total greedy assignment: {phase1_assignments + phase2_assignments + phase3_assignments} interviews assigned")
         
         return phase1_assignments + phase2_assignments + phase3_assignments
-    
-    def rescue_unscheduled(self):
-        """Rescue phase: try to schedule interviews for applicants with no assignments."""
-        print("Starting rescue phase for unscheduled applicants...")
-        
-        # Find applicants with no interviews
-        scheduled_applicants = set(a for a, _, _, _, _ in self.schedule)
-        unscheduled = [a for a in self.applicants if a not in scheduled_applicants]
-        
-        if not unscheduled:
-            print("All applicants already scheduled!")
-            return 0
-        
-        print(f"Found {len(unscheduled)} unscheduled applicants: {unscheduled}")
-        
-        rescued = 0
-        
-        for applicant in unscheduled:
-            print(f"Trying to rescue applicant {applicant}...")
-            
-            # Find ANY available slot for this applicant
-            best_options = []
-            
-            for dept in self.departments:
-                for date_k in self.dates:
-                    feasible_times = self.find_feasible_times(applicant, dept, date_k)
-                    
-                    for start_time in feasible_times:
-                        # Calculate how "costly" this assignment would be
-                        # (prefer times that don't conflict with popular slots)
-                        cost = start_time + date_k * 100  # Simple cost function
-                        best_options.append((cost, dept, date_k, start_time))
-            
-            if not best_options:
-                print(f"  No feasible slots found for applicant {applicant}")
-                
-                # Try to create space by moving existing interviews
-                if self.try_make_space_for_applicant(applicant):
-                    rescued += 1
-                    print(f"  Successfully rescued applicant {applicant} by moving others")
-                else:
-                    print(f"  Could not rescue applicant {applicant}")
-                continue
-            
-            # Sort by cost and try the best option
-            best_options.sort()
-            
-            for cost, dept, date_k, start_time in best_options[:5]:  # Try top 5 options
-                duration = self.interview_duration[dept]
-                end_time = start_time + duration
-                
-                if self.can_schedule_interview(applicant, dept, date_k, start_time, end_time):
-                    self.assign_interview(applicant, dept, date_k, start_time)
-                    rescued += 1
-                    print(f"  Rescued applicant {applicant}: {dept} on day {date_k}")
-                    break
-        
-        print(f"Rescue phase completed: {rescued} applicants rescued")
-        return rescued
-    
-    def try_make_space_for_applicant(self, target_applicant):
-        """Try to make space for an applicant by moving existing interviews."""
-        print(f"    Attempting to make space for applicant {target_applicant}...")
-        
-        # Find target applicant's available times
-        target_available = {}
-        for dept in self.departments:
-            for date_k in self.dates:
-                times = self.find_feasible_times(target_applicant, dept, date_k)
-                if times:
-                    target_available[(dept, date_k)] = times
-        
-        if not target_available:
-            return False
-        
-        # Try to move some existing interviews to make space
-        for (target_dept, target_date), available_times in target_available.items():
-            # Look for existing interviews that we could potentially move
-            existing_interviews = [
-                (a, d, k, st, et) for (a, d, k, st, et) in self.schedule
-                if d == target_dept and k == target_date
-            ]
-            
-            for existing_app, existing_dept, existing_date, existing_start, existing_end in existing_interviews:
-                # Try to move this existing interview to a different time
-                if self.try_move_interview(existing_app, existing_dept, existing_date, existing_start):
-                    # Check if target applicant can now be scheduled
-                    new_feasible_times = self.find_feasible_times(target_applicant, target_dept, target_date)
-                    if new_feasible_times:
-                        duration = self.interview_duration[target_dept]
-                        start_time = new_feasible_times[0]
-                        end_time = start_time + duration
-                        
-                        if self.can_schedule_interview(target_applicant, target_dept, target_date, start_time, end_time):
-                            self.assign_interview(target_applicant, target_dept, target_date, start_time)
-                            return True
-        
-        return False
-    
-    def try_move_interview(self, applicant, dept, current_date, current_start):
-        """Try to move an interview to a different time/date."""
-        # Remove the current interview
-        self.remove_interview(applicant, dept, current_date, current_start)
-        
-        # Try to find a new slot
-        for date_k in self.dates:
-            feasible_times = self.find_feasible_times(applicant, dept, date_k)
-            for start_time in feasible_times:
-                duration = self.interview_duration[dept]
-                end_time = start_time + duration
-                
-                if self.can_schedule_interview(applicant, dept, date_k, start_time, end_time):
-                    self.assign_interview(applicant, dept, date_k, start_time)
-                    return True
-        
-        # If we couldn't move it, restore the original interview
-        self.assign_interview(applicant, dept, current_date, current_start)
-        return False
-    
+      
     def solve_heuristic(self):
         """Main solving function with full coverage priority."""
         print("=" * 50)
@@ -835,26 +639,16 @@ class InterviewSchedulerOptimized:
         
         # Phase 1: Greedy assignment with coverage priority
         assignments = self.greedy_assignment()
-        
         # Check coverage
         scheduled_applicants = len(set(a for a, _, _, _, _ in self.schedule))
         print(f"\nAfter greedy assignment: {scheduled_applicants}/{len(self.applicants)} applicants scheduled")
         
-        # Phase 2: Rescue unscheduled applicants
-        if scheduled_applicants < len(self.applicants):
-            rescued = self.rescue_unscheduled()
-            final_scheduled = len(set(a for a, _, _, _, _ in self.schedule))
-            print(f"After rescue phase: {final_scheduled}/{len(self.applicants)} applicants scheduled")
-          # Phase 3: Consolidation optimization (try to reduce multi-day applicants)
+        # Phase 2: Consolidation optimization (try to reduce multi-day applicants)
         final_scheduled = len(set(a for a, _, _, _, _ in self.schedule))
         if final_scheduled >= len(self.applicants) * 0.9:  # If 90%+ coverage
             print("Good coverage achieved, starting consolidation optimization...")
             consolidation_improvements = self.consolidation_optimization()
             print(f"Consolidation completed: {consolidation_improvements} applicants consolidated")
-            
-            # Phase 4: Local optimization
-            print("Starting local optimization...")
-            self.local_optimization()
         else:
             print("Coverage still insufficient, skipping optimization phases")
         
@@ -1110,7 +904,6 @@ class InterviewSchedulerOptimized:
                         
                         print(f"  ✓ {dept} interview CAN move: {total_available_minutes/60:.1f}h available on day {day1} (need {duration_needed}min)")
 
-    # ...existing code...
 def main():
     """Main function."""
     print("GIS Taiwan Interview Scheduling - Optimized Heuristic")
