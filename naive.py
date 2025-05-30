@@ -5,8 +5,8 @@ Naive Interview Scheduling Algorithm
 
 A very simple naive approach for interview scheduling:
 - Read all availability data
-- Try to assign interviews in order without any optimization
-- First-come-first-served basis
+- Process availability records in order as they appear
+- Try to assign each interview if possible
 - Each applicant gets at most one interview per department
 
 Author: GitHub Copilot
@@ -31,20 +31,18 @@ class NaiveInterviewScheduler(InterviewSchedulerOptimized):
         
         # Additional tracking for naive algorithm
         # Track which (applicant, dept) combinations have been assigned
-        self.assigned_combinations = set()
+        self.assigned_combinations = set()    
+    
     def naive_schedule(self):
         """
-        Naive scheduling algorithm with two phases:
-        Phase 1: Ensure every applicant gets at least one interview
-        Phase 2: Add second interviews for applicants who already have one
-        Each applicant gets at most one interview per department.
+        Simple naive scheduling algorithm:
+        - Process availability records in order
+        - Try to schedule each one if possible
+        - Each applicant gets at most one interview per department
         """
         print("Starting naive scheduling...")
         
-        # Phase 1: First interview for each applicant
-        print("\nPhase 1: Assigning first interview for each applicant...")
-        assigned_applicants = set()  # Track which applicants already have an interview
-        phase1_count = 0
+        total_assigned = 0
         
         for _, row in self.df.iterrows():
             applicant = row['ID']
@@ -52,10 +50,6 @@ class NaiveInterviewScheduler(InterviewSchedulerOptimized):
             k = self.parse_date_to_k(row['date'])
             
             if k is None:
-                continue
-            
-            # Skip if this applicant already has an interview
-            if applicant in assigned_applicants:
                 continue
                 
             # Skip if this (applicant, dept) combination is already assigned
@@ -78,9 +72,8 @@ class NaiveInterviewScheduler(InterviewSchedulerOptimized):
                     if self.can_schedule_interview(applicant, dept, k, start_time, end_time):
                         self.assign_interview(applicant, dept, k, start_time)
                         self.assigned_combinations.add((applicant, dept))
-                        assigned_applicants.add(applicant)  # Mark applicant as having an interview
-                        phase1_count += 1
-                        print(f"Phase 1 - Assigned: Applicant {applicant} ({self.applicant_names[applicant]}) "
+                        total_assigned += 1
+                        print(f"Assigned: Applicant {applicant} ({self.applicant_names[applicant]}) "
                               f"for {dept} on day {k} at {self.minutes_to_time_str(start_time)}")
                         break  # Move to next availability record
                         
@@ -88,57 +81,6 @@ class NaiveInterviewScheduler(InterviewSchedulerOptimized):
                 print(f"Error processing record: {e}")
                 continue
         
-        print(f"Phase 1 completed: {phase1_count} interviews assigned")
-        print(f"Applicants with interviews: {len(assigned_applicants)} / {len(self.applicants)}")
-        
-        # Phase 2: Second interviews for applicants who already have one
-        print("\nPhase 2: Adding second interviews for applicants...")
-        phase2_count = 0
-        
-        for _, row in self.df.iterrows():
-            applicant = row['ID']
-            dept = row['dept']
-            k = self.parse_date_to_k(row['date'])
-            
-            if k is None:
-                continue
-            
-            # Only consider applicants who already have at least one interview
-            if applicant not in assigned_applicants:
-                continue
-                
-            # Skip if this (applicant, dept) combination is already assigned
-            if (applicant, dept) in self.assigned_combinations:
-                continue
-            
-            try:
-                start_str, end_str = row['time_slot'].split('-')
-                available_start = self.parse_time_to_minutes(start_str)
-                available_end = self.parse_time_to_minutes(end_str)
-                
-                # Try to schedule at the earliest possible time in this slot
-                duration = self.interview_duration[dept]
-                
-                # Try every minute within the available time range
-                for start_time in range(available_start, available_end - duration + 1):
-                    end_time = start_time + duration
-                    
-                    # Check if we can schedule here
-                    if self.can_schedule_interview(applicant, dept, k, start_time, end_time):
-                        self.assign_interview(applicant, dept, k, start_time)
-                        self.assigned_combinations.add((applicant, dept))
-                        phase2_count += 1
-                        print(f"Phase 2 - Assigned: Applicant {applicant} ({self.applicant_names[applicant]}) "
-                              f"for {dept} on day {k} at {self.minutes_to_time_str(start_time)}")
-                        break  # Move to next availability record
-                        
-            except Exception as e:
-                print(f"Error processing record: {e}")
-                continue
-        
-        print(f"Phase 2 completed: {phase2_count} additional interviews assigned")
-        
-        total_assigned = phase1_count + phase2_count
         print(f"\nNaive scheduling completed: {total_assigned} interviews assigned total")
         return total_assigned
     
@@ -150,6 +92,13 @@ class NaiveInterviewScheduler(InterviewSchedulerOptimized):
         print("NAIVE SCHEDULING RESULTS")
         print("="*50)
         print(f"Total interviews scheduled: {total_interviews}")
+        
+        # Calculate maximum possible interviews (unique applicant-department combinations)
+        unique_applicant_dept_combinations = set()
+        for (applicant, dept, date_k) in self.available_times.keys():
+            unique_applicant_dept_combinations.add((applicant, dept))
+        max_possible_interviews = len(unique_applicant_dept_combinations)
+        print(f"Maximum possible interviews: {max_possible_interviews}")
         
         # Count by department
         dept_counts = defaultdict(int)
